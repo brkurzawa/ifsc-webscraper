@@ -103,22 +103,7 @@ class IFSCScraper():
             # Extract link
             comp_link = comp[-1]
             
-            # Visit link
-            self.browser.get(comp_link)
-
-            # Wait 20 seconds for loading
-            timeout = 20
-
-            # Open link, return html
-            try:
-                WebDriverWait(self.browser, timeout).until(EC.visibility_of_element_located((By.XPATH,
-                "//div[@class='uk-section-primary uk-section uk-section-xsmall']")))
-            except TimeoutException:
-                print("Timed out waiting for page " + comp_link + " to load")
-                self.browser.quit()
-
-            # Wait to be safe
-            time.sleep(3)
+            self.load_page(comp_link)
 
             # List of subcategories of competitions
             cat_list = self.browser.find_elements_by_xpath("//th[@colspan='4']")
