@@ -175,7 +175,7 @@ class IFSCScraper():
                     this_speed_data = self.get_data_on_page(this_comp_info)
                     speed_data.append(this_speed_data)
                 # Bouldering
-                elif cat_type[-7:] == 'boulder':
+                elif cat_type[-7:] == 'boulder' or cat_type[-10:] == 'bouldering':
                     this_comp_info.append(('Category', cat_type[-7:]))
                     this_boulder_data = self.get_data_on_page(this_comp_info)
                     boulder_data.append(this_boulder_data)
@@ -184,6 +184,9 @@ class IFSCScraper():
                     this_comp_info.append(('Category', cat_type[-8:]))
                     this_combined_data = self.get_data_on_page(this_comp_info)
                     combined_data.append(this_combined_data)
+                else:
+                    # Find out what category this actually was so we can find edge cases
+                    print(cat_type)
 
                 if self.debug:
                     cnt += 1
@@ -261,8 +264,8 @@ class IFSCScraper():
         result_headers = [x.find_elements_by_tag_name('th') for x in result_list]
         headers = [x.text for x in result_headers[0]]
         # Fix name
-        headers[1] = 'FIRST'
-        headers.insert(2, 'LAST')
+        headers[1] = 'LAST'
+        headers.insert(2, 'FIRST')
         
         # Get table rows
         rows = [x.find_elements_by_tag_name('td') for x in result_list]
@@ -303,6 +306,233 @@ class IFSCScraper():
         # Wait for page to load
         time.sleep(wait_after)
 
+    def check_for_new(self, comp_info):
+        """
+        After retrieving info about individual competitions, load previous data and compare to see
+        if there are any new comps
+        input:
+            comp_info - tuple of info about comps scraped from the results page
+        output:
+            list of info in tuple form about comps that are new and should be scraped
+        """
+
+        try:
+            # Load unique names of already scraped competitions
+            unique_names = pd.read_csv('~/projects/ifsc-scraper/data/name_df.csv')
+            # Convert to list
+            unique_names = list(unique_names['Competition Title'])
+        except:
+            print('No comp names saved')
+            unique_names = []
+
+        # List of new competition info
+        new_comp_info = []
+
+        # Check if each comp is new
+        for comp in comp_info:
+            # Check if comp has been scraped or not
+            if comp[0] in unique_names:
+                # Don't add it to new info
+                pass
+            else:
+                # New comp, add to be scraped
+                new_comp_info.append(comp)
+            
+        # Return list of new comps
+        return new_comp_info
+
+    def merge_dfs(self, gathered_dfs):
+        """
+        Merge newly gathered dfs with old dfs
+        input:
+            gathered_dfs - pandas dataframes that have been gathered this run
+        output:
+            merged dfs
+        """
+        # Split into dfs
+        lead_df, speed_df, boulder_df, combined_df = gathered_dfs
+
+        # Merge each df with the exisiting data
+        old_lead_df = pd.read_csv('~/projects/ifsc-scraper/data/lead_results.csv')
+        old_speed_df = pd.read_csv('~/projects/ifsc-scraper/data/speed_results.csv')
+        old_boulder_df = pd.read_csv('~/projects/ifsc-scraper/data/boulder_results.csv')
+        old_combined_df = pd.read_csv('~/projects/ifsc-scraper/data/combined_results.csv')
+
+        lead_df = pd.concat([lead_df, old_lead_df], ignore_index=True)
+        speed_df = pd.concat([speed_df, old_speed_df], ignore_index=True)
+        boulder_df = pd.concat([boulder_df, old_boulder_df], ignore_index=True)
+        combined_df = pd.concat([combined_df, old_combined_df], ignore_index=True)
+
+        return [lead_df, speed_df, boulder_df, combined_df]
+
+    def clean_boulder(self, boulder_df):
+        """
+        Cleans up the columns of the boulder df
+        input:
+            boulder_df - pandas dataframe containing info about bouldering comps
+        output:
+            cleaned boulder df
+        """
+        # Names of the possible columns for semifinals
+        semifinal_cols = ['Semi-Final', 'Semi Final', 'Semifinal', 'semi-Final', 'SemiFinal',
+        'Semi final', 'Semi-final', 'Semi - Final', '1/2-Final']
+
+        # Remove column names that aren't in this df
+        for col in list(semifinal_cols):
+            if col not in list(boulder_df):
+                semifinal_cols.remove(col)
+
+        # Consolidate columns
+        boulder_df['New Semifinal'] = boulder_df[semifinal_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        boulder_df = boulder_df.drop(semifinal_cols, axis=1)
+        boulder_df = boulder_df.rename(columns={'New Semifinal':'Semifinal'})
+
+        # Qualification 1 columns
+        qual_cols = ['1. Qualification (2)', '1. Qualification', 'Qualification (Group 1)',
+                 'Qualification (group A)', 'A Qualification', 'A. Qualification',
+                 'Qualification A', 'Qualification Group A', 'Qualification 1']
+
+        # Remove column names that aren't in this df
+        for col in list(qual_cols):
+            if col not in list(boulder_df):
+                qual_cols.remove(col)
+
+        # Consolidate columns
+        boulder_df['New Qualification 1'] = boulder_df[qual_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        boulder_df = boulder_df.drop(qual_cols, axis=1)
+        boulder_df = boulder_df.rename(columns={'New Qualification 1':'Qualification 1'})
+
+
+        # Qualification 2 columns
+        qual_cols = ['2. Qualification (2)', '2. Qualification', 'Qualification (Group 2)',
+                 'B Qualification', 'Qualification (group B)', 'B. Qualification',
+                 'Qualification B', 'Qualification Group B', 'Qualification 2']
+
+        # Remove column names that aren't in this df
+        for col in list(qual_cols):
+            if col not in list(boulder_df):
+                qual_cols.remove(col)
+
+        # Consolidate columns
+        boulder_df['New Qualification 2'] = boulder_df[qual_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        boulder_df = boulder_df.drop(qual_cols, axis=1)
+        boulder_df = boulder_df.rename(columns={'New Qualification 2':'Qualification 2'})
+
+
+        return boulder_df
+
+    def clean_combined(self, combined_df):
+        """
+        Cleans up the columns of the combined df
+        input:
+            combined_df - pandas dataframe containing info about combined comps
+        output:
+            cleaned combined df
+        """
+        # No cleaning needed as of 10/16/2019
+        return combined_df
+
+    def clean_lead(self, lead_df):
+        """
+        Cleans up the columns of the lead df
+        input:
+            lead_df - pandas dataframe containing info about lead comps
+        output:
+            cleaned lead df
+        """
+
+        # Names of the possible columns for semifinals
+        semifinal_cols = ['1/2 Final', 'Semi-Final', 'Semi Final', 'SemiFinal', 'Semi-final', '1/2 - Final', '1/2-Final', 'Semi - Final', 'Semifinal']
+
+        # Remove column names that aren't in this df
+        for col in list(semifinal_cols):
+            if col not in list(lead_df):
+                semifinal_cols.remove(col)
+        
+        # Consolidate columns
+        lead_df['New Semifinal'] = lead_df[semifinal_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        lead_df = lead_df.drop(semifinal_cols, axis=1)
+        lead_df = lead_df.rename(columns={'New Semifinal':'Semifinal'})
+
+        # Names of the possible columns for qualification 1
+        qual_cols = ['1. Qualification 1', '1. Qualification',
+        'Qualification 1', '1. Qualification:', '1.Qualification',
+        'Group A Qualification', '1 Qualification', 'Qualification 1']
+        
+        # Remove column names that aren't in this df
+        for col in list(qual_cols):
+            if col not in list(lead_df):
+                qual_cols.remove(col)
+
+        # Consolidate columns
+        lead_df['New Qualification'] = lead_df[qual_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        lead_df = lead_df.drop(qual_cols, axis=1)
+        lead_df = lead_df.rename(columns={'New Qualification':'Qualification 1'})
+        
+        # Names of the possible columns for qualification 2
+        qual_cols = ['2. Qualification', '2. Qualification 2', 'Qualification 2', 'Group B Qualification', 'Qualification 2']
+
+        # Remove column names that aren't in this df
+        for col in list(qual_cols):
+            if col not in list(lead_df):
+                qual_cols.remove(col)
+
+        lead_df['New Qualification'] = lead_df[qual_cols].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        lead_df = lead_df.drop(qual_cols, axis=1)
+        lead_df = lead_df.rename(columns={'New Qualification':'Qualification 2'})
+
+        # Drop this random nan column is it's there
+        try:
+            lead_df = lead_df.drop(['Unnamed: 18'], axis=1)
+        except:
+            pass
+
+        return lead_df
+
+    def clean_speed(self, speed_df):
+        """
+        Cleans up the columns of the speed df
+        input:
+            speed_df - pandas dataframe containing info about speed comps
+        output:
+            cleaned speed df
+        """
+
+        # Names of the possible columns for 1/8 finals
+        eighths = ['1/8 - Final', '1_8 - Final']
+
+        # Remove column names that aren't in this df
+        for col in list(eighths):
+            if col not in list(speed_df):
+                eighths.remove(col)
+
+        speed_df['New Eighths'] = speed_df[eighths].apply(
+            lambda x: ','.join(x.dropna().astype(str)),
+            axis=1
+        )
+        speed_df = speed_df.drop(eighths, axis=1)
+        speed_df = speed_df.rename(columns={'New Eighths':'1/8 - Final'})
+
+        return speed_df
+
     def scrape(self):
         """
         Scrape the website, build dataframes, save dataframes
@@ -311,7 +541,16 @@ class IFSCScraper():
         output:
             N/A
         """
-        lead_df, speed_df, boulder_df, combined_df = self.make_df_from_data(self.get_sub_comp_info(self.get_complete_result_links(self.get_comp_links())))
+        lead_df, speed_df, boulder_df, combined_df = self.make_df_from_data(self.get_sub_comp_info(self.get_complete_result_links(self.check_for_new(self.get_comp_links()))))
+
+        # Merge new data with old data
+        lead_df, speed_df, boulder_df, combined_df = self.merge_dfs([lead_df, speed_df, boulder_df, combined_df])
+
+        # Clean data before saving
+        lead_df = self.clean_lead(lead_df)
+        speed_df = self.clean_speed(speed_df)
+        boulder_df = self.clean_boulder(boulder_df)
+        combined_df = self.clean_combined(combined_df)
 
         lead_df.to_csv('lead_results.csv', index=False)
         speed_df.to_csv('speed_results.csv', index=False)
